@@ -3,6 +3,7 @@ library(tidyverse)
 library(magrittr)
 library(reshape2)
 
+
 # htmlソースコードを読み込む
 pokemon_ranking <- read_html("https://yakkun.com/sm/status_list.htm")
 
@@ -33,7 +34,7 @@ pokemon_data_ranking <- pokemon_data_ranking %>% mutate(ranking = 1:n())
 
 
 # 集計
-pokemon_data_melt <- melt(pokemon_data, id.vars = 'name')
+pokemon_data_melt <- melt(pokemon_data %>% select(-url), id.vars = 'name')
 pokemon_data_melt %>% 
     group_by(variable) %>% 
     summarise(mean = mean(value),
@@ -57,8 +58,8 @@ ggplot(data = pokemon_data_melt %>% filter(!(variable %in% c('id','Total'))),
 
 
 
-pokemon_data_standarized <- pokemon_data
-pokemon_data_standarized <- pokemon_data_standarized %>% 
+pokemon_data_standardized <- pokemon_data
+pokemon_data_standardized <- pokemon_data_standardized %>% 
                               mutate_at(vars(Hit_Points,
                                              Attack,
                                              Defense,
@@ -66,15 +67,15 @@ pokemon_data_standarized <- pokemon_data_standarized %>%
                                              Special_Defense,
                                              Speed),funs(scale(.) %>% as.vector))
 
-pokemon_data_standarized <- pokemon_data_standarized %>% 
+pokemon_data_standardized <- pokemon_data_standardized %>% 
                               mutate(Total = rowSums(select(.,c(3:8))))
 
-pokemon_data_standarized_ranking <- pokemon_data_standarized %>% arrange(desc(Total))
-pokemon_data_standarized_ranking <- pokemon_data_standarized_ranking %>% mutate(standarized_ranking = 1:n())
+pokemon_data_standardized_ranking <- pokemon_data_standardized %>% arrange(desc(Total))
+pokemon_data_standardized_ranking <- pokemon_data_standardized_ranking %>% mutate(standardized_ranking = 1:n())
 
 
-pokemon_data_standarized_melt <- melt(pokemon_data_standarized, id.vars = 'name')
-pokemon_data_standarized_melt %>% 
+pokemon_data_standardized_melt <- melt(pokemon_data_standardized %>% select(-url), id.vars = 'name')
+pokemon_data_standardized_melt %>% 
   group_by(variable) %>% 
   summarise(mean = mean(value),
             median = median(value),
@@ -85,7 +86,7 @@ pokemon_data_standarized_melt %>%
 
 
 # Box-Plotを描く
-ggplot(data = pokemon_data_standarized_melt %>% filter(!(variable %in% c('id','Total','Total_standarized'))),
+ggplot(data = pokemon_data_standardized_melt %>% filter(!(variable %in% c('id','Total','Total_standardized'))),
        aes(x = variable, y = value)) +
   geom_boxplot() + ggtitle("Tribal value") + 
   theme(plot.title = element_text(hjust = 0.5))
@@ -93,16 +94,16 @@ ggplot(data = pokemon_data_standarized_melt %>% filter(!(variable %in% c('id','T
 
 ranking_gap <- pokemon_data_ranking %>% 
                 select(id,name,ranking) %>% 
-                left_join(pokemon_data_standarized_ranking %>% 
-                  select(name,standarized_ranking),by='name') %>% 
-                  mutate(gap = abs(ranking - standarized_ranking))
+                left_join(pokemon_data_standardized_ranking %>% 
+                  select(name,standardized_ranking),by='name') %>% 
+                  mutate(gap = abs(ranking - standardized_ranking))
                   
 
+# ポケモンの個別ページの情報を格納するデータフレームの作成
 pokemon_detail_database <- data.frame(url = as.character(),
                                       name = as.character(),
                                       rarity = as.integer(),
                                       experience = as.integer())
-
 
 # ポケモン別のURLからゲットしやすさなどを抽出するための関数
 Pokemon_Detail_Get <- function(pokemon_url){
@@ -124,9 +125,8 @@ Pokemon_Detail_Get <- function(pokemon_url){
                                     experience = node_extracted_pokemon_exp)
   return(pokemon_detail_data)
   
-  Sys.sleep(20)
+  Sys.sleep(30)
 }
-
 
 # ポケモン別のページをスクレイピングする
 pokemon_detail_database <- map_dfr(pokemon_link ,
@@ -136,14 +136,73 @@ pokemon_detail_database <- map_dfr(pokemon_link ,
 pokemon_detail_database <- pokemon_detail_database %>% distinct(url, .keep_all = TRUE)
 
 # 種族値のデータとゲットしやすさなどのデータを繋ぎこむ
-pokemon_data <- pokemon_data %>% left_join(pokemon_detail_database %>% select(-name), by ="url")
+pokemon_data_standardized <- pokemon_data_standardized %>% left_join(pokemon_detail_database %>% select(-name), by ="url")
 
 # ゲットしやすさのヒストグラム
-ggplot(data = pokemon_data, aes(x = rarity)) + geom_histogram() 
+ggplot(data = pokemon_data_standardized, aes(x = rarity)) + geom_histogram() 
 
 # 経験値のヒストグラム
-ggplot(data = pokemon_data, aes(x = experience)) + geom_histogram() 
-
-ggplot(data = pokemon_data, aes(x = experience, y = Total)) + geom_point()
+ggplot(data = pokemon_data_standardized, aes(x = experience)) + geom_histogram() 
 
 
+# ゲットのしやすさと種族値の合計
+ggplot(data = pokemon_data_standardized, aes(x = rarity, y = Total)) + 
+  geom_point() + ylab('Total Tribal Value')
+
+# 経験値と種族値の合計
+ggplot(data = pokemon_data_standardized, aes(x = experience, y = Total)) + 
+      geom_point() + ylab('Total Tribal Value')
+
+
+# おかしそうなレア度0と255のデータを除外する。
+pokemon_data_standardized_filtered <- pokemon_data_standardized %>% filter(rarity > 0, rarity < 255)
+
+# ゲットのしやすさと種族値の合計
+ggplot(data = pokemon_data_standardized_filtered, aes(x = rarity, y = Total)) + 
+  geom_point() + ylab('Total Tribal Value')
+
+
+pokemon_data_standardized_filtered <- pokemon_data_standardized_filtered %>% mutate(y = ifelse(rarity <= 50, 1, 0))
+
+
+library(rstan)
+
+N <- nrow(pokemon_data_standardized_filtered)
+
+data <- list(N = N,
+             Hit_Points = pokemon_data_standardized_filtered$Hit_Points,
+             Attack = pokemon_data_standardized_filtered$Attack,
+             Defense = pokemon_data_standardized_filtered$Defense,
+             Special_Attack = pokemon_data_standardized_filtered$Special_Attack,
+             Special_Defense = pokemon_data_standardized_filtered$Special_Defense,
+             Speed = pokemon_data_standardized_filtered$Speed,
+             Y = pokemon_data_standardized_filtered$y)
+
+fit <- stan(file = 'logistic_regression.stan',
+            data = data,
+            seed = 1234)
+
+summary(fit)
+
+traceplot(fit)
+
+source('common.R')
+
+ms <- rstan::extract(fit)
+N_mcmc <- length(ms$lp__)
+
+param_names <- c('mcmc', paste0('b', 1:7))
+d_est <- data.frame(1:N_mcmc, ms$b)
+colnames(d_est) <- param_names
+d_qua <- data.frame.quantile.mcmc(x=param_names[-1], y_mcmc=d_est[,-1])
+d_melt <- reshape2::melt(d_est, id=c('mcmc'), variable.name='X')
+d_melt$X <- factor(d_melt$X, levels=rev(levels(d_melt$X)))
+
+p <- ggplot()
+p <- p + theme_bw(base_size=18)
+p <- p + coord_flip()
+p <- p + geom_violin(data=d_melt, aes(x=X, y=value), fill='white', color='grey80', size=2, alpha=0.3, scale='width')
+p <- p + geom_pointrange(data=d_qua, aes(x=X, y=p50, ymin=p2.5, ymax=p97.5), size=1)
+p <- p + labs(x='parameter', y='value')
+p <- p + scale_y_continuous(breaks=seq(from=-2, to=6, by=2))
+p
