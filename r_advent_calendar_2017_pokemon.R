@@ -47,8 +47,8 @@ pokemon_data_melt %>%
 # Box-Plotを描く
 ggplot(data = pokemon_data_melt %>% filter(!(variable %in% c('id','Total'))),
        aes(x = variable, y = value)) +
-   geom_boxplot() + ggtitle("Tribal value") + 
-   theme(plot.title = element_text(hjust = 0.5))
+   geom_boxplot() + ggtitle("Tribal Value") + 
+   theme(plot.title = element_text(hjust = 0.5)) + coord_flip()
 
 # Violin-Plotを描く
 ggplot(data = pokemon_data_melt %>% filter(!(variable %in% c('id','Total'))),
@@ -88,8 +88,8 @@ pokemon_data_standardized_melt %>%
 # Box-Plotを描く
 ggplot(data = pokemon_data_standardized_melt %>% filter(!(variable %in% c('id','Total','Total_standardized'))),
        aes(x = variable, y = value)) +
-  geom_boxplot() + ggtitle("Tribal value") + 
-  theme(plot.title = element_text(hjust = 0.5))
+  geom_boxplot() + ggtitle("Tribal Value") + 
+  theme(plot.title = element_text(hjust = 0.5)) + coord_flip()
 
 
 ranking_gap <- pokemon_data_ranking %>% 
